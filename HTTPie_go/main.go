@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"io"
@@ -11,44 +12,63 @@ import (
 	"github.com/gookit/color"
 )
 
+// 存储所有的子命令
+var commands = make(map[string]Request)
+
+type Request interface {
+	parse(args []string)
+}
+
+// get子命令
+type GetCommand struct {
+	url string
+}
+
+func (g *GetCommand) parse(args []string) {
+	subCommand := flag.NewFlagSet("get", flag.ExitOnError)
+	subCommand.StringVar(&g.url, "url", "", "Request URL")
+	subCommand.Parse(args)
+	validateUrl(&g.url)
+	color.Bluef("get %s 。。。。。\n", g.url)
+	parseRes("get", &g.url, nil)
+}
+
+// post子命令
+type PostCommand struct {
+	url  string
+	args string
+}
+
+func (p *PostCommand) parse(args []string) {
+	subCommand := flag.NewFlagSet("post", flag.ExitOnError)
+	subCommand.StringVar(&p.url, "url", "", "Request URL")
+	subCommand.StringVar(&p.args, "args", "", "Request args")
+	subCommand.Parse(args)
+	validateUrl(&p.url)
+	color.Bluef("post %s 。。。。。\n", p.url)
+	parseRes("post", &p.url, &p.args)
+}
+
 func main() {
-	// 请求地址
-	var url string
+	commands["get"] = &GetCommand{}
 	// 判断是否有命令
 	if len(os.Args) < 2 {
 		color.Redln("expected 'get' or 'post' subcommands")
 		os.Exit(1)
 	}
-	// 选择子命令
-	switch os.Args[1] {
-	case "get":
-		// get子命令
-		getCommand := flag.NewFlagSet("get", flag.ExitOnError)
-		getCommand.StringVar(&url, "url", "", "要请求的网络地址")
-		// 解析参数
-		getCommand.Parse(os.Args[2:])
-		validateUrl(&url)
-		color.Bluef("get %s 。。。。。\n", url)
-		parseRes("get", &url)
-	case "post":
-		// post子命令
-		postCommand := flag.NewFlagSet("post", flag.ExitOnError)
-		postCommand.StringVar(&url, "url", "", "要请求的网络地址")
-		postUrl := color.Blue.Sprintf("post %s", url)
-		color.Println(postUrl)
-		postCommand.Parse(os.Args[2:])
-	}
+	// 选择子命令并解析
+	commands[os.Args[1]].parse(os.Args[2:])
 }
 
 // 发送并解析请求返回
-func parseRes(method string, url *string) {
+func parseRes(method string, url *string, args *string) {
 	var res *http.Response
 	var err error
 	switch method {
 	case "get":
 		res, err = http.Get(*url)
 	case "post":
-		res, err = http.Post(*url, "application/json", nil)
+		res, err = http.Post(*url, "application/json", newIoStream(*args))
 	}
 	if err != nil {
 		color.Redln("request failed: " + err.Error())
@@ -56,6 +76,7 @@ func parseRes(method string, url *string) {
 	}
 	color.Blueln(res.Proto, res.Status)
 	fmt.Println()
+	// 将请求头一行行打印
 	for name, value := range res.Header {
 		color.Greenf("%s: ", name)
 		color.Printf("%s\n", value[0])
@@ -66,6 +87,7 @@ func parseRes(method string, url *string) {
 		n, err := res.Body.Read(body)
 		if err != nil && err != io.EOF {
 			color.Redln("read body failed: " + err.Error())
+			os.Exit(1)
 		}
 		if n < 1024 {
 			break
@@ -84,4 +106,9 @@ func validateUrl(url *string) {
 		color.Println(parseErr)
 		os.Exit(1)
 	}
+}
+
+// 创建新的io流
+func newIoStream(body string) io.Reader {
+	return bytes.NewBufferString(body)
 }
