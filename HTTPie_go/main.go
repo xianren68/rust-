@@ -1,9 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"flag"
-	"fmt"
 	"io"
 	"net/http"
 	Url "net/url"
@@ -29,7 +29,7 @@ func (g *GetCommand) parse(args []string) {
 	subCommand.StringVar(&g.url, "url", "", "Request URL")
 	subCommand.Parse(args)
 	validateUrl(&g.url)
-	color.Bluef("get %s 。。。。。\n", g.url)
+	color.Grayf("get %s 。。。。。\n", g.url)
 	parseRes("get", &g.url, nil)
 }
 
@@ -45,12 +45,13 @@ func (p *PostCommand) parse(args []string) {
 	subCommand.StringVar(&p.args, "args", "", "Request args")
 	subCommand.Parse(args)
 	validateUrl(&p.url)
-	color.Bluef("post %s 。。。。。\n", p.url)
+	color.Grayf("post %s 。。。。。\n", p.url)
 	parseRes("post", &p.url, &p.args)
 }
 
 func main() {
 	commands["get"] = &GetCommand{}
+	commands["post"] = &PostCommand{}
 	// 判断是否有命令
 	if len(os.Args) < 2 {
 		color.Redln("expected 'get' or 'post' subcommands")
@@ -68,21 +69,22 @@ func parseRes(method string, url *string, args *string) {
 	case "get":
 		res, err = http.Get(*url)
 	case "post":
-		res, err = http.Post(*url, "application/json", newIoStream(*args))
+		res, err = http.Post(*url, "application/json", bytes.NewBufferString(*args))
 	}
 	if err != nil {
 		color.Redln("request failed: " + err.Error())
 		os.Exit(1)
 	}
-	color.Blueln(res.Proto, res.Status)
-	fmt.Println()
+	// 创建缓冲区，将所有的数据一起输出
+	output := bufio.NewWriter(os.Stdout)
+	output.WriteString(color.Blue.Sprintf("%s %s\n\n", res.Proto, res.Status))
 	// 将请求头一行行打印
 	for name, value := range res.Header {
-		color.Greenf("%s: ", name)
-		color.Printf("%s\n", value[0])
+		output.WriteString(color.Green.Sprintf("%s: ", name) + color.Sprintf("%s\n", value[0]))
 	}
-	fmt.Println()
+	output.WriteString("\n")
 	body := make([]byte, 1024)
+	// 读取所有返回数据
 	for {
 		n, err := res.Body.Read(body)
 		if err != nil && err != io.EOF {
@@ -92,8 +94,10 @@ func parseRes(method string, url *string, args *string) {
 		if n < 1024 {
 			break
 		}
-		color.Yellowln(string(body))
+		color.Yellow.Sprintf("%s", body[:n])
+		output.WriteString(color.Yellow.Sprintf("%s", body[:n]))
 	}
+	output.Flush()
 	defer res.Body.Close()
 
 }
@@ -106,9 +110,4 @@ func validateUrl(url *string) {
 		color.Println(parseErr)
 		os.Exit(1)
 	}
-}
-
-// 创建新的io流
-func newIoStream(body string) io.Reader {
-	return bytes.NewBufferString(body)
 }
